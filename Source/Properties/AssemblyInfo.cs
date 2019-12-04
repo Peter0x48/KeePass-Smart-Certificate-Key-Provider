@@ -5,9 +5,9 @@ using System.Runtime.InteropServices;
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
 [assembly: AssemblyTitle("SmartCertificateKeyProviderPlugin")]
-[assembly: AssemblyDescription("This plugin uses X.509 certificate from your personal certificate storage to encrypt KeePass database with generated SHA1 hash from certificate's signature. It also allow to use certificates that are on your Smart Card. It is possible to use Secure Desktop feature (needs to be enabled in Options - Security tab) to avoid Keyloggers.\nDON'T LOOSE YOUR CERTIFICATE OR YOU WILL NOT BE ABLE TO OPEN YOUR DATABASE.")]
+[assembly: AssemblyDescription("This plugin uses X.509 certificate from your personal certificate storage to encrypt KeePass database with generated SHA1 hash from certificate's signature. It also allow to use certificates that are on your Smart Card. It is possible to use Secure Desktop feature (needs to be enabled in Options - Security tab) to avoid Keyloggers. PLEASE SAVE THE RECOVERY KEY AFTER CREATING YOUR DATABASE OR YOU WILL BE UNABLE TO OPEN IT AGAIN AFTER LOSING YOUR KEY!")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("BodnarSoft")]
+[assembly: AssemblyCompany("BodnarSoft/Peter Hurtenbach")]
 [assembly: AssemblyProduct("KeePass Plugin")]
 [assembly: AssemblyCopyright("Copyright 2018, BodnarSoft")]
 [assembly: AssemblyTrademark("")]

@@ -12,23 +12,28 @@
         {
             using (var sha = new SHA256Cng())
             {
-                var computeHash = sha.ComputeHash(Encoding.UTF8.GetBytes(text));
+                byte[] computeHash = sha.ComputeHash(Encoding.UTF8.GetBytes(text));
 
-                return Convert.ToBase64String(computeHash);
+                return ByteArrayToString(computeHash);
             }
         }
 
-        public static string PadRightToMachLengthOfMultiply(this string text, byte multiplyBy)
+        // Taken from: https://stackoverflow.com/questions/311165/how-do-you-convert-a-byte-array-to-a-hexadecimal-string-and-vice-versa
+        public static string ByteArrayToString(byte[] ba)
         {
-            var length = text.Length;
+            StringBuilder hex = new StringBuilder(ba.Length * 2);
+            foreach (byte b in ba)
+                hex.AppendFormat("{0:x2}", b);
+            return hex.ToString();
+        }
 
-            if (length % multiplyBy == 0)
-                return text;
-
-            var size = Convert.ToDouble(length) / multiplyBy;
-            var newSize = Convert.ToInt32(Math.Ceiling(size) * multiplyBy);
-
-            return text.PadRight(newSize);
+        public static byte[] StringToByteArray(string hex)
+        {
+            int numberChars = hex.Length;
+            byte[] bytes = new byte[numberChars / 2];
+            for (int i = 0; i < numberChars; i += 2)
+                bytes[i / 2] = Convert.ToByte(hex.Substring(i, 2), 16);
+            return bytes;
         }
 
         #endregion

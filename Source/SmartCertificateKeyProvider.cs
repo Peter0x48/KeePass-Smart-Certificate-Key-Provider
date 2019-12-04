@@ -9,6 +9,7 @@
     using KeePass.Plugins;
     using KeePassLib.Keys;
     using KeePassLib.Utility;
+    using SmartCertificateKeyProviderPlugin.Extensions;
 
     public class SmartCertificateKeyProvider : KeyProvider, IDisposable
     {
@@ -43,10 +44,6 @@
 
         public SmartCertificateKeyProvider(IPluginHost host)
         {
-            Host = host;
-            CertificateCache = new UsedCertificateCache();
-
-            Host.MainWindow.FileOpened += OnDatabaseOpened;
             DataToSign = Encoding.UTF8.GetBytes(DefaultSignatureDataText);
         }
 
@@ -66,8 +63,6 @@
 
         #region Private properties
 
-        private UsedCertificateCache CertificateCache { get; }
-
         private byte[] DataToSign { get; }
 
         private IPluginHost Host { get; }
@@ -78,10 +73,6 @@
 
         public void Dispose()
         {
-            Host.MainWindow.FileOpened -= OnDatabaseOpened;
-
-            CertificateCache.Dispose();
-
             GC.SuppressFinalize(this);
         }
 
@@ -98,6 +89,7 @@
             propertiesFilePath = propertiesFilePath.Replace(".kdbx", ".properties");
 
             SavedDatabaseProperties savedDatabaseProperties = new SavedDatabaseProperties(propertiesFilePath);
+
             // Read existing properties file
             if (!keyProviderQueryContext.CreatingNewKey)
             {
@@ -123,7 +115,7 @@
                 // Create salt
                 byte[] saltBytes = new byte[32];
                 new Random().NextBytes(saltBytes);
-                savedDatabaseProperties.PutValue("salt", ByteArrayToString(saltBytes));
+                savedDatabaseProperties.PutValue("salt", StringExtension.ByteArrayToString(saltBytes));
 
                 try
                 {
@@ -137,6 +129,7 @@
             }
 
             string salt = savedDatabaseProperties.GetValue("salt");
+            string usedCert = savedDatabaseProperties.GetValue("cert");
 
             X509Certificate2[] userCertificates = UserCertificates;
             if (userCertificates == null || userCertificates.Length == 0)
@@ -150,8 +143,10 @@
 
             X509Certificate2 certificate = null;
 
-            if (!keyProviderQueryContext.CreatingNewKey)
-                certificate = GetCertificateFromCache(keyProviderQueryContext.DatabasePath);
+            if (usedCert != null)
+            {
+                certificate = userCertificates.SingleOrDefault(c => c.Thumbprint.GenerateSha256Hash().Equals(usedCert));
+            }
 
             if (certificate == null)
             {
@@ -175,58 +170,66 @@
             }
 
             if (certificate == null)
-                MessageService.ShowInfo("No valid certificate selected!");
-            else
             {
-                try
-                {
-                    if (certificate.PrivateKey is RSA rsa)
-                    {
-                        CertificateCache.StoreCachedValue(keyProviderQueryContext.DatabasePath, certificate.Thumbprint);
-
-                        byte[] dataToSign = Encoding.UTF8.GetBytes(string.Format("{0}:{1}", salt, DefaultSignatureDataText));
-
-                        byte[] signedData = rsa.SignData(dataToSign, HashAlgorithmName.SHA512, RSASignaturePadding.Pkcs1); // DO NOT CHANGE THIS!!!!;
-
-                        // Show recovery form if this is initial signing
-                        if (keyProviderQueryContext.CreatingNewKey)
-                        {
-                            SaveRecoveryKeyForm saveRecoveryKeyForm = new SaveRecoveryKeyForm(ByteArrayToString(signedData));
-                            saveRecoveryKeyForm.ShowDialog();
-                        }
-
-                        return signedData;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MessageService.ShowWarning($"Selected certificate can't be used!\nReason: {ex.Message}.");
-                }
+                MessageService.ShowInfo("No valid certificate selected!");
+                return null;
             }
 
-            return null;
+            try
+            {
+                if (!(certificate.PrivateKey is RSA))
+                {
+                    MessageService.ShowWarning("PrivateKey of selected certificate is not RSA!");
+                    return null;
+                }
+
+                RSA privateKey = (RSA)certificate.PrivateKey;
+
+                byte[] dataToSign = Encoding.UTF8.GetBytes(string.Format("{0}:{1}", salt, DefaultSignatureDataText));
+
+                byte[] signedData = privateKey.SignData(dataToSign, HashAlgorithmName.SHA512, RSASignaturePadding.Pkcs1); // DO NOT CHANGE THIS!!!!;
+
+                // Save certificate if needed
+                if (usedCert == null || usedCert.Length == 0)
+                {
+                    savedDatabaseProperties.PutValue("cert", certificate.Thumbprint.GenerateSha256Hash());
+                    try
+                    {
+                        savedDatabaseProperties.SaveFile();
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageService.ShowWarning($"Unable to save properties file.\nReason: {ex.Message}");
+                        return null;
+                    }
+                }
+
+                // Show recovery form if this is initial signing
+                if (keyProviderQueryContext.CreatingNewKey)
+                {
+                    SaveRecoveryKeyForm saveRecoveryKeyForm = new SaveRecoveryKeyForm(StringExtension.ByteArrayToString(signedData));
+                    saveRecoveryKeyForm.ShowDialog();
+                }
+
+                return signedData;
+            }
+            catch (Exception ex)
+            {
+                MessageService.ShowWarning($"Selected certificate can't be used!\nReason: {ex.Message}.\nTrying recovery...");
+                byte[] readRecoveryKey = ReadRecoveryKey();
+                if (readRecoveryKey != null)
+                {
+                    return readRecoveryKey;
+                }
+
+                MessageService.ShowWarning("Recovery failed.");
+                return null;
+            }
         }
 
         #endregion
 
         #region Private methods
-
-        private X509Certificate2 GetCertificateFromCache(string databasePath)
-        {
-            try
-            {
-                var thumbprint = CertificateCache.GetCachedValue(databasePath);
-
-                if (thumbprint != null)
-                    return UserCertificates.SingleOrDefault(c => c.Thumbprint.Equals(thumbprint));
-            }
-            catch (Exception ex)
-            {
-                MessageService.ShowWarning($"Selected certificate can't be used!\nReason: {ex.Message}.");
-            }
-
-            return null;
-        }
 
         private byte[] ReadRecoveryKey()
         {
@@ -236,7 +239,7 @@
                 byte[] decodedData;
                 try
                 {
-                    decodedData = StringToByteArray(enterRecoveryKeyForm.EnteredKey);
+                    decodedData = StringExtension.StringToByteArray(enterRecoveryKeyForm.EnteredKey);
                 }
                 catch (Exception ex)
                 {
@@ -249,32 +252,6 @@
 
             return null;
         }
-
-        // Taken from: https://stackoverflow.com/questions/311165/how-do-you-convert-a-byte-array-to-a-hexadecimal-string-and-vice-versa
-        private string ByteArrayToString(byte[] ba)
-        {
-            StringBuilder hex = new StringBuilder(ba.Length * 2);
-            foreach (byte b in ba)
-                hex.AppendFormat("{0:x2}", b);
-            return hex.ToString();
-        }
-
-        private byte[] StringToByteArray(string hex)
-        {
-            int numberChars = hex.Length;
-            byte[] bytes = new byte[numberChars / 2];
-            for (int i = 0; i < numberChars; i += 2)
-                bytes[i / 2] = Convert.ToByte(hex.Substring(i, 2), 16);
-            return bytes;
-        }
-
-        private void OnDatabaseOpened(object sender, FileOpenedEventArgs args)
-        {
-            var path = args.Database.IOConnectionInfo.Path;
-
-            CertificateCache.SetCachedItemAsValid(path);
-        }
-
         #endregion
     }
 }
